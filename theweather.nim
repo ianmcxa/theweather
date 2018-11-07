@@ -1,28 +1,53 @@
 # Display the weather in cool terminal color
 # by Ian Mcxa
 
-import json, httpclient, strutils, colorize, os
+import json, httpclient, strutils, colorize, os, times
 
-let apiKey = ""
-let zipCode = "27606"
-
-#[proc getCachedWeather(): string =
-  var f: File
-  open(f, "$1/.theweathercache" % getHomeDir())
-  ]#
+const apiKey = staticExec("cat apikey.txt")
+let zipCode = staticExec("cat zip.txt")
 
 type
   CurrentWeather* = object
     temp, humidity, conditionCode: int
     condition: string
 
+type
+  ForecastWeather* = object
+    highTemp, lowTemp: int
+
+proc cacheResult(data: string): void =
+  let file = open("$1/.theweathercache" % getHomeDir(), fmWrite)
+  file.write(data)
+  file.close()
+
+proc checkCache(): (JsonNode, bool) =
+  if (not fileExists("$1/.theweathercache" % getHomeDir())):
+    return (nil, false)
+
+  let file = open("$1/.theweathercache" % getHomeDir())
+  let data = parseJson(file.readLine())
+
+  # check if the data is up to date
+  let cacheDate = fromUnix(data["dt"].getInt())
+  # if the weather data is older than 1 hour, it's out of date
+  if (cacheDate + 1.hours < now().toTime()):
+    return (nil, false)
+  else:
+    return (data, true)
+
 proc getCurrentWeather(): CurrentWeather =
-  #TODO check cache
+  var json: JsonNode = nil
 
-  var client = newHttpClient()
-  let response = client.getContent("https://api.openweathermap.org/data/2.5/weather?zip=$2,us&appId=$1" % [apiKey, zipCode])
+  let cache = checkCache()
+  # if we got a positive response from the cache
+  if (cache[1]):
+    json = cache[0]
+  else:
+    var client = newHttpClient()
+    let response = client.getContent("https://api.openweathermap.org/data/2.5/weather?zip=$2,us&appId=$1" % [apiKey, zipCode])
+    cacheResult(response)
 
-  let json = parseJson(response)
+    json = parseJson(response)
   
   return CurrentWeather(temp: int(json["main"]["temp"].getFloat() * 9 / 5 - 459.67),
                         conditionCode: json["weather"][0]["id"].getInt(),
